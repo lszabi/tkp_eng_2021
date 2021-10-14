@@ -1,0 +1,13 @@
+ARG torcs_img
+
+FROM ${torcs_img}
+
+RUN mkdir -p torcs_client
+
+COPY client /torcs_client
+
+COPY docker/entrypoint-runtime.sh /entrypoint-runtime.sh
+
+RUN chmod +x /entrypoint-runtime.sh
+
+ENTRYPOINT ["/entrypoint-runtime.sh"]

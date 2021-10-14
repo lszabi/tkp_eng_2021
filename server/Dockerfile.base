@@ -1,0 +1,25 @@
+FROM ubuntu:18.04
+
+RUN apt-get update -y --fix-missing\
+    && apt-get upgrade -y\
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tzdata \
+    build-essential \
+    freeglut3 \
+    freeglut3-dev \
+    libglew-dev \
+    libgl1-mesa-dev \
+    libplib-dev \
+    libopenal-dev \
+    libalut-dev \
+    vorbis-tools \
+    libvorbis-dev \
+    libxi-dev \
+    libxmu-dev \
+    libxrender-dev \
+    libxrandr-dev \
+    libz-mingw-w64-dev \
+    libz-dev \
+    libpng-dev \
+    xmlstarlet
+
+CMD [ "" ]

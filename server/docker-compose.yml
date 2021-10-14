@@ -1,0 +1,21 @@
+version: "3.7"
+services:
+  torcs_server:
+    image: tkpgamification/torcs_server:1.3.7
+    container_name: torcs_server
+    volumes:
+      - ./torcs_data:/root/.torcs
+      - ./torcs_road:/torcs_road
+    environment:
+      - RACE_FILE=/root/.torcs/config/raceman/quickrace.xml
+      - ROAD_NAME=${ROAD_NAME}
+      - CAR_NAME=${CAR_NAME}
+    ports:
+      - "3001:3001/udp"
+
+  torcs_client:
+    image: ${RUNTIME_TORCS_CLIENT_IMAGE}
+    container_name: test_driver
+    network_mode: host
+    depends_on:
+      - torcs_server
