@@ -31,7 +31,7 @@ extern "C" {
 	float getAccel(structCarState *cs);
 	
 	// Apply an ABS filter to brake command
-	float filterABS(structCarState *cs,float brake);
+	float filterABS(structCarState *cs, float brake);
 
 	// Solves the clucthing subproblems
 	void clutching(structCarState *cs, float *clutch);
