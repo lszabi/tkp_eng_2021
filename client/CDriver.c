@@ -1,13 +1,14 @@
 #include "CDriver.h"
+#include <math.h>
 
 /* Gear Changing Constants*/
 const int gearUp[6] =
 {
-	5000,6000,6000,6500,7000,0
+	7000,7500,7500,8000,8500,0
 };
 const int gearDown[6] =
 {
-	0,2500,3000,3000,3500,3500
+	0,3000,4000,4000,4000,4500
 };
 
 /* Stuck constants*/
@@ -70,6 +71,73 @@ int getGear(structCarState* cs)
 	else // otherwhise keep current gear
 	{
 		return gear;
+	}
+}
+
+float filterABS(structCarState* cs, float brake)
+{
+	// convert speed to m/s
+	float speed = cs->speedX / 3.6;
+	// when speed lower than min speed for abs do nothing
+	if (speed < absMinSpeed)
+		return brake;
+
+	// compute the speed of wheels in m/s
+	float slip = 0.0f;
+	for (int i = 0; i < 4; i++)
+	{
+		slip += cs->wheelSpinVel[i] * wheelRadius[i];
+	}
+	// slip is the difference between actual speed of car and average speed of wheels
+	slip = speed - slip / 4.0f;
+	// when slip too high apply ABS
+	if (slip > absSlip)
+	{
+		brake = brake - (slip - absSlip) / absRange;
+	}
+
+	// check brake is not negative, otherwise set it to zero
+	if (brake < 0)
+		return 0;
+	else
+		return brake;
+}
+
+void clutching(structCarState* cs, float* clutch)
+{
+	float maxClutch = clutchMax;
+
+	// Check if the current situation is the race start
+	if (cs->curLapTime < clutchDeltaTime && cs->stage == RACE && cs->distRaced < clutchDeltaRaced)
+		*clutch = maxClutch;
+
+	// Adjust the current value of the clutch
+	if (clutch > 0)
+	{
+		float delta = clutchDelta;
+		if (cs->gear < 2)
+		{
+			// Apply a stronger clutch output when the gear is one and the race is just started
+			delta /= 2;
+			maxClutch *= clutchMaxModifier;
+			if (cs->curLapTime < clutchMaxTime)
+				*clutch = maxClutch;
+		}
+
+		// check clutch is not bigger than maximum values
+		*clutch = fmin(maxClutch, *clutch);
+
+		// if clutch is not at max value decrease it quite quickly
+		if (*clutch != maxClutch)
+		{
+			*clutch -= delta;
+			*clutch = fmax(0.0, *clutch);
+		}
+		// if clutch is at max value decrease it very slowly
+		else
+		{
+			*clutch -= clutchDec;
+		}
 	}
 }
 
@@ -142,70 +210,128 @@ float getAccel(structCarState* cs)
 	}
 }
 
-float filterABS(structCarState* cs, float brake)
-{
-	// convert speed to m/s
-	float speed = cs->speedX / 3.6;
-	// when speed lower than min speed for abs do nothing
-	if (speed < absMinSpeed)
-		return brake;
+int msg = 1;
 
-	// compute the speed of wheels in m/s
-	float slip = 0.0f;
-	for (int i = 0; i < 4; i++)
+void customDrive(structCarState* cs, float* accel, float* steer) {
+	/*
+	// checks if car is out of track
+	if (cs->trackPos < 1 && cs->trackPos > -1)
 	{
-		slip += cs->wheelSpinVel[i] * wheelRadius[i];
-	}
-	// slip is the difference between actual speed of car and average speed of wheels
-	slip = speed - slip / 4.0f;
-	// when slip too high apply ABS
-	if (slip > absSlip)
-	{
-		brake = brake - (slip - absSlip) / absRange;
-	}
 
-	// check brake is not negative, otherwise set it to zero
-	if (brake < 0)
-		return 0;
+	}
 	else
-		return brake;
-}
-
-void clutching(structCarState* cs, float* clutch)
-{
-	float maxClutch = clutchMax;
-
-	// Check if the current situation is the race start
-	if (cs->curLapTime < clutchDeltaTime && cs->stage == RACE && cs->distRaced < clutchDeltaRaced)
-		*clutch = maxClutch;
-
-	// Adjust the current value of the clutch
-	if (clutch > 0)
 	{
-		float delta = clutchDelta;
-		if (cs->gear < 2)
+		*accel = 0.3; // when out of track returns a moderate acceleration command
+	}
+	*/
+	/*
+	if (cs->distFromStart < 150 || cs->distFromStart > 2000) {
+		*accel = 1;
+	}
+	else
+	{
+		if (cs->speedX < 3)
 		{
-			// Apply a stronger clutch output when the gear is one and the race is just started
-			delta /= 2;
-			maxClutch *= clutchMaxModifier;
-			if (cs->curLapTime < clutchMaxTime)
-				*clutch = maxClutch;
+			if (msg == 2)
+			{
+				printf("Distance: %.02f\n", cs->distFromStart);
+				msg = 3;
+			}
+			*accel = 0;
 		}
-
-		// check clutch is not bigger than maximum values
-		*clutch = fmin(maxClutch, *clutch);
-
-		// if clutch is not at max value decrease it quite quickly
-		if (*clutch != maxClutch)
-		{
-			*clutch -= delta;
-			*clutch = fmax(0.0, *clutch);
-		}
-		// if clutch is at max value decrease it very slowly
 		else
 		{
-			*clutch -= clutchDec;
+			if (msg == 1)
+			{
+				printf("Braking now, speed: %.02f\n", cs->speedX);
+				msg = 2;
+			}
+			*accel = -1;
 		}
+	}
+	*/
+	float speed = cs->speedX;
+	float targetAngle = cs->angle - cs->trackPos * 0.5;
+
+	// checks if car is out of track
+	if (abs(cs->trackPos) < 1)
+	{
+		float lSensor = cs->track[10]; // +5 deg to car axis
+		float cSensor = cs->track[9]; // parallel to car axis
+		float rSensor = cs->track[8]; // -5 deg to car axis
+
+		float brake_distance = speed * speed * speed / 20000; // magic formula
+
+		if (cSensor > brake_distance)
+		{
+			// pedal to the metal
+			*accel = 1;
+		}
+		/*
+		else if (fabs(targetAngle) < 0.5)
+		{
+			// coast
+			*accel = 0;
+		}*/
+		else
+		{
+			// break
+			*accel = -1;
+		}
+
+		/*
+
+		// track is straight and enough far from a turn so goes to max speed
+		if (cSensor > brake_distance || (cSensor >= lSensor && cSensor >= rSensor))
+		{
+			// pedal to the metal
+			*accel = 1;
+
+			// steering angle is computed by correcting the actual car angle w.r.t. to track 
+			// axis [cs->angle] and to adjust car position w.r.t to middle of track [cs->trackPos*0.5]
+			targetAngle = cs->angle - cs->trackPos * 0.5;
+		}
+		else
+		{
+			float targetSpeed = 0;
+			// approaching a turn on right
+			if (lSensor > rSensor)
+			{
+				// computing approximately the "angle" of turn
+				float h = cSensor * sin5;
+				float b = rSensor - cSensor * cos5;
+				float sinAngle = b * b / (h * h + b * b);
+				// estimate the target speed depending on turn and on how close it is
+				targetSpeed = maxSpeed * (cSensor * sinAngle / maxSpeedDist);
+			}
+			// approaching a turn on left
+			else
+			{
+				// computing approximately the "angle" of turn
+				float h = cSensor * sin5;
+				float b = lSensor - cSensor * cos5;
+				float sinAngle = b * b / (h * h + b * b);
+				// estimate the target speed depending on turn and on how close it is
+				targetSpeed = maxSpeed * (cSensor * sinAngle / maxSpeedDist);
+			}
+			// accel/brake command is expontially scaled w.r.t. the difference between target speed and current one
+			*accel = 2 / (1 + exp(speed - targetSpeed)) - 1;
+		}
+		*/
+	}
+	else
+	{
+		*accel = 0.3; // when out of track returns a moderate acceleration command
+	}
+	
+	// at high speed reduce the steering command to avoid loosing the control
+	if (speed > steerSensitivityOffset)
+	{
+		*steer = targetAngle / (steerLock * (cs->speedX - steerSensitivityOffset) * wheelSensitivityCoeff);
+	}
+	else
+	{
+		*steer = (targetAngle) / steerLock;
 	}
 }
 
@@ -254,13 +380,16 @@ structCarControl CDrive(structCarState cs)
 
 	else // car is not stuck
 	{
-		// compute accel/brake command
-		float accel_and_brake = getAccel(&cs);
 		// compute gear 
 		int gear = getGear(&cs);
-		// compute steering
-		float steer = getSteer(&cs);
 
+		float accel_and_brake = 0, steer = 0;
+		customDrive(&cs, &accel_and_brake, &steer);
+		
+		// compute accel/brake command
+		//accel_and_brake = getAccel(&cs);
+		// compute steering
+		//steer = getSteer(&cs);
 
 		// normalize steering
 		if (steer < -1)
@@ -270,7 +399,7 @@ structCarControl CDrive(structCarState cs)
 
 		// set accel and brake from the joint accel/brake command 
 		float accel, brake;
-		if (accel_and_brake > 0)
+		if (accel_and_brake >= 0)
 		{
 			accel = accel_and_brake;
 			brake = 0;
