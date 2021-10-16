@@ -242,7 +242,13 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 	}
 	*/
 	float speed = cs->speedX;
-	float targetAngle = cs->angle - cs->trackPos * 0.5;
+
+	// angle: negative to left, positive to right
+	// trackpos: positive to left, negative to right
+	float angle_err = 0;
+	float target_pos = 0;
+	float pos_err = cs->trackPos;
+	int steer_brake = 0;
 
 	// checks if car is out of track
 	if (abs(cs->trackPos) < 1)
@@ -253,32 +259,16 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 
 		float brake_distance = speed * speed * speed / 20000; // magic formula
 
-		if (cSensor < lSensor || cSensor < rSensor)
-		{
-			// corner ahead
-			float target_pos = 0;
-
-			if (lSensor > rSensor)
-			{
-				// turn left
-				target_pos = -0.9;
-			}
-			else
-			{
-				// turn right
-				target_pos = 0.9;
-			}
-
-			targetAngle = cs->angle - (cs->trackPos - target_pos) * 0.5;
-		}
-
 		if (cSensor > brake_distance || lSensor > brake_distance || rSensor > brake_distance)
 		{
 			// pedal to the metal
-			//if (speed < 50)
+			*accel = 1;
+			/*
+			if (speed > 50)
 			{
-				*accel = 1;
+				*accel = 0;
 			}
+			*/
 		}
 		else if (cSensor > brake_distance)
 		{
@@ -287,9 +277,63 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 		}
 		else
 		{
-			// break
+			// brake
 			*accel = -1;
 		}
+
+		if (cSensor < lSensor || cSensor < rSensor)
+		{
+			// corner ahead
+			if (lSensor > rSensor)
+			{
+				// turn left
+				target_pos = -0.85;
+			}
+			else
+			{
+				// turn right
+				target_pos = 0.85;
+			}
+
+			pos_err = cs->trackPos - target_pos;
+			if (pos_err > 0.3)
+			{
+				steer_brake = 1;
+			}
+			if (pos_err < -0.3)
+			{
+				steer_brake = 1;
+			}
+
+			if (steer_brake)
+			{
+				if (*accel > -0.1)
+				{
+					*accel -= 0.5;
+				}
+			}
+
+			angle_err -= 0.5 * pos_err;
+		}
+		else
+		{
+			if (angle_err < 0 && pos_err > 0)
+			{
+				angle_err -= 0.3 * pos_err;
+			}
+			if (angle_err > 0 && pos_err < 0)
+			{
+				angle_err -= 0.3 * pos_err;
+			}
+			if (pos_err > 0.3 || pos_err < -0.3)
+			{
+				angle_err -= 0.3 * pos_err;
+			}
+		}
+		
+		//printf("angle: %3.02f, trackpos: %3.02f\r", angle_err, );
+
+		*steer = angle_err * 1.1;
 
 		/*
 
@@ -335,6 +379,7 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 	{
 		*accel = 0.3; // when out of track returns a moderate acceleration command
 	}
+
 	/*
 	// at high speed reduce the steering command to avoid loosing the control
 	if (speed > steerSensitivityOffset)
@@ -346,10 +391,6 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 		*steer = (targetAngle) / steerLock;
 	}
 	*/
-	if (fabs(targetAngle) > 0.1)
-	{
-		*steer = targetAngle;
-	}
 
 	/*
 	// Filter acceleration
