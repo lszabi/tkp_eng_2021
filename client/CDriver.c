@@ -2,14 +2,8 @@
 #include <math.h>
 
 /* Gear Changing Constants*/
-const int gearUp[6] =
-{
-	7000,7500,7500,8000,8500,0
-};
-const int gearDown[6] =
-{
-	0,3000,4000,4000,4000,4500
-};
+const int gearUp[6] = {7500,8000,8000,8500,8500,0};
+const int gearDown[6] = {0,3000,4000,4000,4000,4500};
 
 /* Stuck constants*/
 const int stuckTime = 25;
@@ -44,6 +38,14 @@ const float clutchMaxTime = 1.5;
 
 int stuck;
 float clutch;
+
+/* Filtering */
+#define ACCEL_FILT_N 50
+float accel_filt[ACCEL_FILT_N] = {0, };
+int accel_filt_i = 0;
+
+float accel_int = 0;
+float steer_int = 0;
 
 int getGear(structCarState* cs)
 {
@@ -214,17 +216,6 @@ int msg = 1;
 
 void customDrive(structCarState* cs, float* accel, float* steer) {
 	/*
-	// checks if car is out of track
-	if (cs->trackPos < 1 && cs->trackPos > -1)
-	{
-
-	}
-	else
-	{
-		*accel = 0.3; // when out of track returns a moderate acceleration command
-	}
-	*/
-	/*
 	if (cs->distFromStart < 150 || cs->distFromStart > 2000) {
 		*accel = 1;
 	}
@@ -260,19 +251,40 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 		float cSensor = cs->track[9]; // parallel to car axis
 		float rSensor = cs->track[8]; // -5 deg to car axis
 
-		float brake_distance = speed * speed * speed / 20000; // magic formula
+		float brake_distance = 0.5 * speed * speed * speed / 20000; // magic formula
 
-		if (cSensor > brake_distance)
+		if (cSensor < lSensor || cSensor < rSensor)
+		{
+			// corner ahead
+			float target_pos = 0;
+
+			if (lSensor > rSensor)
+			{
+				// turn left
+				target_pos = -0.9;
+			}
+			else
+			{
+				// turn right
+				target_pos = 0.9;
+			}
+
+			targetAngle = cs->angle - (cs->trackPos - target_pos) * 0.5;
+		}
+
+		if (cSensor > brake_distance || lSensor > brake_distance || rSensor > brake_distance)
 		{
 			// pedal to the metal
-			*accel = 1;
+			//if (speed < 50)
+			{
+				*accel = 1;
+			}
 		}
-		/*
-		else if (fabs(targetAngle) < 0.5)
+		else if (cSensor > brake_distance)
 		{
 			// coast
 			*accel = 0;
-		}*/
+		}
 		else
 		{
 			// break
@@ -323,7 +335,7 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 	{
 		*accel = 0.3; // when out of track returns a moderate acceleration command
 	}
-	
+	/*
 	// at high speed reduce the steering command to avoid loosing the control
 	if (speed > steerSensitivityOffset)
 	{
@@ -333,6 +345,25 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 	{
 		*steer = (targetAngle) / steerLock;
 	}
+	*/
+	if (fabs(targetAngle) > 0.1)
+	{
+		*steer = 0.9 * targetAngle;
+	}
+
+	/*
+	// Filter acceleration
+	accel_filt[accel_filt_i] = *accel;
+	accel_filt_i = (accel_filt_i + 1) % ACCEL_FILT_N;
+	float avg = 0;
+	for (int i = 0; i < ACCEL_FILT_N; i++)
+	{
+		avg += accel_filt[i];
+	}
+	*accel = avg / ACCEL_FILT_N;
+	*/
+	//*accel = *accel / 2 + accel_int / 4;
+	//accel_int = accel_int / 2 + *accel;
 }
 
 structCarControl CDrive(structCarState cs)
