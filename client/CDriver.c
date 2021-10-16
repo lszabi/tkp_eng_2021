@@ -251,7 +251,7 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 		float cSensor = cs->track[9]; // parallel to car axis
 		float rSensor = cs->track[8]; // -5 deg to car axis
 
-		float brake_distance = 0.5 * speed * speed * speed / 20000; // magic formula
+		float brake_distance = speed * speed * speed / 20000; // magic formula
 
 		if (cSensor < lSensor || cSensor < rSensor)
 		{
@@ -348,7 +348,7 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 	*/
 	if (fabs(targetAngle) > 0.1)
 	{
-		*steer = 0.9 * targetAngle;
+		*steer = targetAngle;
 	}
 
 	/*
