@@ -17,7 +17,7 @@ const float cos5 = 0.99619;
 
 /* Steering constants*/
 const float steerLock = 0.785398;
-const float steerSensitivityOffset = 80.0;
+const float steerSensitivityOffset = 90.0;
 const float wheelSensitivityCoeff = 1;
 
 /* ABS Filter Constants */
@@ -259,7 +259,7 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 
 		float brake_distance = speed * speed * speed / 20000; // magic formula
 
-		if (cSensor > brake_distance || lSensor > brake_distance || rSensor > brake_distance)
+		if (cSensor > maxSpeedDist || lSensor > maxSpeedDist || rSensor > maxSpeedDist)
 		{
 			// pedal to the metal
 			*accel = 1;
@@ -270,15 +270,15 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 			}
 			*/
 		}
-		else if (cSensor > brake_distance)
-		{
-			// coast
-			*accel = 0;
-		}
-		else
+		else if (cSensor < (maxSpeedDist * 0.5))
 		{
 			// brake
 			*accel = -1;
+		}
+		else
+		{			
+			// coast
+			*accel = 0;
 		}
 
 		if (cSensor < lSensor || cSensor < rSensor)
@@ -307,9 +307,13 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 
 			if (steer_brake)
 			{
-				if (*accel > -0.1)
+				if (*accel > 0.1)
 				{
-					*accel -= 0.5;
+					*accel = 0.7;
+				}
+				else if (*accel > -0.1)
+				{
+					*accel = -0.3;
 				}
 			}
 
@@ -317,6 +321,8 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 		}
 		else
 		{
+			angle_err -= 0.3 * pos_err;
+			/*
 			if (angle_err < 0 && pos_err > 0)
 			{
 				angle_err -= 0.3 * pos_err;
@@ -329,11 +335,22 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 			{
 				angle_err -= 0.3 * pos_err;
 			}
+			*/
 		}
 		
 		//printf("angle: %3.02f, trackpos: %3.02f\r", angle_err, );
 
-		*steer = angle_err * 1.1;
+		//*steer = angle_err * 1.1;
+
+		// at high speed reduce the steering command to avoid loosing the control
+		if (speed > steerSensitivityOffset)
+		{
+			*steer = angle_err / (steerLock * (cs->speedX - steerSensitivityOffset));
+		}
+		else
+		{
+			*steer = (angle_err) / steerLock;
+		}
 
 		/*
 
@@ -379,18 +396,6 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 	{
 		*accel = 0.3; // when out of track returns a moderate acceleration command
 	}
-
-	/*
-	// at high speed reduce the steering command to avoid loosing the control
-	if (speed > steerSensitivityOffset)
-	{
-		*steer = targetAngle / (steerLock * (cs->speedX - steerSensitivityOffset) * wheelSensitivityCoeff);
-	}
-	else
-	{
-		*steer = (targetAngle) / steerLock;
-	}
-	*/
 
 	/*
 	// Filter acceleration
