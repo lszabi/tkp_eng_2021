@@ -1,28 +1,22 @@
 #include "CDriver.h"
 
 /* Gear Changing Constants*/
-const int gearUp[6]=
-    {
-        5000,6000,6000,6500,7000,0
-    };
-const int gearDown[6]=
-    {
-        0,2500,3000,3000,3500,3500
-    };
+const int gearUp[6] = { 7500,8000,8000,8500,8500,0 };
+const int gearDown[6] = { 0,3000,4000,4000,4000,4500 };
 
 /* Stuck constants*/
 const int stuckTime = 25;
 const float stuckAngle = .523598775; //PI/6
 
 /* Accel and Brake Constants*/
-const float maxSpeedDist=70;
-const float maxSpeed=150;
+const float maxSpeedDist=100;
+const float maxSpeed=250;
 const float sin5 = 0.08716;
 const float cos5 = 0.99619;
 
 /* Steering constants*/
 const float steerLock=0.785398;
-const float steerSensitivityOffset=80.0;
+const float steerSensitivityOffset=100.0;
 const float wheelSensitivityCoeff=1;
 
 /* ABS Filter Constants */
