@@ -10,13 +10,13 @@ const float stuckAngle = .523598775; //PI/6
 
 /* Accel and Brake Constants*/
 const float maxSpeedDist=100;
-const float maxSpeed=250;
+const float maxSpeed=200;
 const float sin5 = 0.08716;
 const float cos5 = 0.99619;
 
 /* Steering constants*/
 const float steerLock=0.785398;
-const float steerSensitivityOffset=100.0;
+const float steerSensitivityOffset=80.0;
 const float wheelSensitivityCoeff=1;
 
 /* ABS Filter Constants */
@@ -85,36 +85,32 @@ float getAccel(structCarState *cs)
         // reading of sensor at -5 degree w.r.t. car axis
         float sxSensor=cs->track[8];
 
-        float targetSpeed;
+        float targetSpeed = 75;
 
         // track is straight and enough far from a turn so goes to max speed
         if (cSensor>maxSpeedDist || (cSensor>=rxSensor && cSensor >= sxSensor))
             targetSpeed = maxSpeed;
         else
         {
+            
+            // computing approximately the "angle" of turn
+            float h = cSensor * sin5;
+            float b = -cSensor * cos5;
             // approaching a turn on right
             if(rxSensor>sxSensor)
             {
-                // computing approximately the "angle" of turn
-                float h = cSensor*sin5;
-                float b = rxSensor - cSensor*cos5;
-                float sinAngle = b*b/(h*h+b*b);
-                // estimate the target speed depending on turn and on how close it is
-                targetSpeed = maxSpeed*(cSensor*sinAngle/maxSpeedDist);
+                b += rxSensor;
             }
             // approaching a turn on left
             else
             {
-                // computing approximately the "angle" of turn
-                float h = cSensor*sin5;
-                float b = sxSensor - cSensor*cos5;
-                float sinAngle = b*b/(h*h+b*b);
-                // estimate the target speed depending on turn and on how close it is
-                targetSpeed = maxSpeed*(cSensor*sinAngle/maxSpeedDist);
+                b += sxSensor;
+                
             }
-
+            float sinAngle = b * b / (h * h + b * b);
+            targetSpeed = maxSpeed * (cSensor * sinAngle / maxSpeedDist);
+            
         }
-
         // accel/brake command is expontially scaled w.r.t. the difference between target speed and current one
         return 2/(1+exp(cs->speedX - targetSpeed)) - 1;
     }
