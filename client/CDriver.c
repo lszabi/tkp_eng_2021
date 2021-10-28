@@ -1,6 +1,14 @@
 #include "CDriver.h"
 #include <math.h>
 
+#ifdef VS_DEBUG
+	#include <WinSock.h>
+	SOCKET socketDescriptor;
+	struct sockaddr_in serverAddress;
+#endif
+
+const float PI = 3.14159265;
+
 /* Gear Changing Constants*/
 const int gearUp[6] = {7500,8000,8000,8500,8500,0};
 const int gearDown[6] = {0,3000,4000,4000,4000,4500};
@@ -215,201 +223,49 @@ float getAccel(structCarState* cs)
 int msg = 1;
 
 void customDrive(structCarState* cs, float* accel, float* steer) {
-	/*
-	if (cs->distFromStart < 150 || cs->distFromStart > 2000) {
-		*accel = 1;
-	}
-	else
-	{
-		if (cs->speedX < 3)
-		{
-			if (msg == 2)
-			{
-				printf("Distance: %.02f\n", cs->distFromStart);
-				msg = 3;
-			}
-			*accel = 0;
-		}
-		else
-		{
-			if (msg == 1)
-			{
-				printf("Braking now, speed: %.02f\n", cs->speedX);
-				msg = 2;
-			}
-			*accel = -1;
-		}
-	}
-	*/
 	float speed = cs->speedX;
 
 	// angle: negative to left, positive to right
 	// trackpos: positive to left, negative to right
 	float angle_err = 0;
 	float target_pos = 0;
-	float pos_err = cs->trackPos;
+	float pos_err = -cs->trackPos;
 	int steer_brake = 0;
 
-	// checks if car is out of track
-	if (abs(cs->trackPos) < 1)
+	float rSensor = cs->track[10]; // +5 deg to car axis, but clockwise
+	float cSensor = cs->track[9]; // parallel to car axis
+	float lSensor = cs->track[8]; // -5 deg to car axis, but clockwise
+
+	if (speed < 70) {
+		*accel = 0.5;
+	}
+	/*
+	if (rSensor > cSensor) {
+		pos_err = -0.75 - cs->trackPos;
+	}
+	if (lSensor > cSensor) {
+		pos_err = 0.75 - cs->trackPos;
+	}
+	*/
+
+	angle_err = -cs->angle - 0.5 * pos_err;
+
+	// at high speed reduce the steering command to avoid loosing the control
+	if (speed > steerSensitivityOffset)
 	{
-		float lSensor = cs->track[10]; // +5 deg to car axis
-		float cSensor = cs->track[9]; // parallel to car axis
-		float rSensor = cs->track[8]; // -5 deg to car axis
-
-		float brake_distance = speed * speed * speed / 20000; // magic formula
-
-		if (cSensor > maxSpeedDist || lSensor > maxSpeedDist || rSensor > maxSpeedDist)
-		{
-			// pedal to the metal
-			*accel = 1;
-			/*
-			if (speed > 50)
-			{
-				*accel = 0;
-			}
-			*/
-		}
-		else if (cSensor < (maxSpeedDist * 0.5))
-		{
-			// brake
-			*accel = -1;
-		}
-		else
-		{			
-			// coast
-			*accel = 0;
-		}
-
-		if (cSensor < lSensor || cSensor < rSensor)
-		{
-			// corner ahead
-			if (lSensor > rSensor)
-			{
-				// turn left
-				target_pos = -0.85;
-			}
-			else
-			{
-				// turn right
-				target_pos = 0.85;
-			}
-
-			pos_err = cs->trackPos - target_pos;
-			if (pos_err > 0.3)
-			{
-				steer_brake = 1;
-			}
-			if (pos_err < -0.3)
-			{
-				steer_brake = 1;
-			}
-
-			if (steer_brake)
-			{
-				if (*accel > 0.1)
-				{
-					*accel = 0.7;
-				}
-				else if (*accel > -0.1)
-				{
-					*accel = -0.3;
-				}
-			}
-
-			angle_err -= 0.5 * pos_err;
-		}
-		else
-		{
-			angle_err -= 0.3 * pos_err;
-			/*
-			if (angle_err < 0 && pos_err > 0)
-			{
-				angle_err -= 0.3 * pos_err;
-			}
-			if (angle_err > 0 && pos_err < 0)
-			{
-				angle_err -= 0.3 * pos_err;
-			}
-			if (pos_err > 0.3 || pos_err < -0.3)
-			{
-				angle_err -= 0.3 * pos_err;
-			}
-			*/
-		}
-		
-		//printf("angle: %3.02f, trackpos: %3.02f\r", angle_err, );
-
-		//*steer = angle_err * 1.1;
-
-		// at high speed reduce the steering command to avoid loosing the control
-		if (speed > steerSensitivityOffset)
-		{
-			*steer = angle_err / (steerLock * (cs->speedX - steerSensitivityOffset));
-		}
-		else
-		{
-			*steer = (angle_err) / steerLock;
-		}
-
-		/*
-
-		// track is straight and enough far from a turn so goes to max speed
-		if (cSensor > brake_distance || (cSensor >= lSensor && cSensor >= rSensor))
-		{
-			// pedal to the metal
-			*accel = 1;
-
-			// steering angle is computed by correcting the actual car angle w.r.t. to track 
-			// axis [cs->angle] and to adjust car position w.r.t to middle of track [cs->trackPos*0.5]
-			targetAngle = cs->angle - cs->trackPos * 0.5;
-		}
-		else
-		{
-			float targetSpeed = 0;
-			// approaching a turn on right
-			if (lSensor > rSensor)
-			{
-				// computing approximately the "angle" of turn
-				float h = cSensor * sin5;
-				float b = rSensor - cSensor * cos5;
-				float sinAngle = b * b / (h * h + b * b);
-				// estimate the target speed depending on turn and on how close it is
-				targetSpeed = maxSpeed * (cSensor * sinAngle / maxSpeedDist);
-			}
-			// approaching a turn on left
-			else
-			{
-				// computing approximately the "angle" of turn
-				float h = cSensor * sin5;
-				float b = lSensor - cSensor * cos5;
-				float sinAngle = b * b / (h * h + b * b);
-				// estimate the target speed depending on turn and on how close it is
-				targetSpeed = maxSpeed * (cSensor * sinAngle / maxSpeedDist);
-			}
-			// accel/brake command is expontially scaled w.r.t. the difference between target speed and current one
-			*accel = 2 / (1 + exp(speed - targetSpeed)) - 1;
-		}
-		*/
+		*steer =  -PI * angle_err / (steerLock * (cs->speedX - steerSensitivityOffset));
 	}
 	else
 	{
-		*accel = 0.3; // when out of track returns a moderate acceleration command
+		*steer = -PI * angle_err / steerLock;
 	}
 
-	/*
-	// Filter acceleration
-	accel_filt[accel_filt_i] = *accel;
-	accel_filt_i = (accel_filt_i + 1) % ACCEL_FILT_N;
-	float avg = 0;
-	for (int i = 0; i < ACCEL_FILT_N; i++)
-	{
-		avg += accel_filt[i];
-	}
-	*accel = avg / ACCEL_FILT_N;
-	*/
-	//*accel = *accel / 2 + accel_int / 4;
-	//accel_int = accel_int / 2 + *accel;
+#ifdef VS_DEBUG
+	char str[256] = "";
+	sprintf(str, "Angle: %.02f\nTrack pos: %.02f\nC-Sensor: %.02f\nL-Sensor: %.02f\nR-Sensor: %.02f\npos_err: %.02f\nangle_err: %.02f|angle_err;100;%f",
+		cs->angle, cs->trackPos, cSensor, lSensor, rSensor, pos_err, angle_err, angle_err);
+	sendto(socketDescriptor, str, strlen(str), 0, (struct sockaddr*) & serverAddress, sizeof(serverAddress));
+#endif // VS_DEBUG
 }
 
 structCarControl CDrive(structCarState cs)
@@ -501,7 +357,16 @@ structCarControl CDrive(structCarState cs)
 void Cinit(float* angles)
 {
 
-	// set angles as {-90,-75,-60,-45,-30,20,15,10,5,0,5,10,15,20,30,45,60,75,90}
+#ifdef VS_DEBUG
+	socketDescriptor = socket(AF_INET, SOCK_DGRAM, 0);
+	struct hostent* hostInfo = gethostbyname("localhost");
+	serverAddress.sin_family = hostInfo->h_addrtype;
+	memcpy((char*)&serverAddress.sin_addr.s_addr, hostInfo->h_addr_list[0], hostInfo->h_length);
+	serverAddress.sin_port = htons(9000);
+#endif // VS_DEBUG
+
+
+	// set angles as {-90,-75,-60,-45,-30,-20,-15,-10,-5,0,5,10,15,20,30,45,60,75,90}
 
 	for (int i = 0; i < 5; i++)
 	{
