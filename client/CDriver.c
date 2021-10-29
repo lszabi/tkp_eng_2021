@@ -7,7 +7,7 @@
 	struct sockaddr_in serverAddress;
 #endif
 
-const float PI = 3.14159265;
+const float PI = 3.14159265f;
 
 /* Gear Changing Constants*/
 const int gearUp[6] = {7500,8000,8000,8500,8500,0};
@@ -232,24 +232,47 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 	float pos_err = -cs->trackPos;
 	int steer_brake = 0;
 
+	float frSensor = cs->track[15];
 	float rSensor = cs->track[10]; // +5 deg to car axis, but clockwise
 	float cSensor = cs->track[9]; // parallel to car axis
 	float lSensor = cs->track[8]; // -5 deg to car axis, but clockwise
+	float flSensor = cs->track[3];
 
-	if (speed < 70) {
-		*accel = 0.5;
-	}
-	/*
-	if (rSensor > cSensor) {
-		pos_err = -0.75 - cs->trackPos;
-	}
-	if (lSensor > cSensor) {
-		pos_err = 0.75 - cs->trackPos;
-	}
-	*/
+	float target_speed = 280;
+	float sensor_max = fmax(cSensor, fmax(lSensor, rSensor));
 
+	if (sensor_max < 150) {
+		if (cSensor < 30) {
+			target_speed = cSensor + 55;
+		}
+		else if (sensor_max < 75)
+		{
+			target_speed = sensor_max * 1.2f + 50;
+		}
+		else
+		{
+			target_speed = sensor_max * 1.5f + 50;
+		}
+	}
+
+	if (speed < target_speed) {
+		*accel = 1;
+	}
+	else if (speed > (target_speed + 10)) {
+		*accel = -1;
+	}
+
+	float corner_dir = 1;
+	if (rSensor > lSensor) {
+		corner_dir = -1;
+	}
+
+	//target_pos = (200 - sensor_max) * 0.004f + cs->angle; // feed back angle
+	pos_err = corner_dir * target_pos  - cs->trackPos;
 	angle_err = -cs->angle - 0.5 * pos_err;
 
+	*steer = -PI * angle_err / steerLock;
+	/*
 	// at high speed reduce the steering command to avoid loosing the control
 	if (speed > steerSensitivityOffset)
 	{
@@ -259,11 +282,21 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 	{
 		*steer = -PI * angle_err / steerLock;
 	}
+	*/
 
 #ifdef VS_DEBUG
-	char str[256] = "";
-	sprintf(str, "Angle: %.02f\nTrack pos: %.02f\nC-Sensor: %.02f\nL-Sensor: %.02f\nR-Sensor: %.02f\npos_err: %.02f\nangle_err: %.02f|angle_err;100;%f",
-		cs->angle, cs->trackPos, cSensor, lSensor, rSensor, pos_err, angle_err, angle_err);
+	char str[512] = "";
+	sprintf(str,	"Angle: %.02f\n"
+					"Track pos: %.02f\n"
+					"C-Sensor: %.02f\n"
+					"L-Sensor: %.02f\n"
+					"R-Sensor: %.02f\n"
+					"pos_err: %.02f\n"
+					"angle_err: %.02f\n"
+					"target_speed: %.02f\n"
+					"sensor_max: %.02f\n"
+					"|target_speed;0.3;%f|sensor;0.5;%f",
+		cs->angle, cs->trackPos, cSensor, lSensor, rSensor, pos_err, angle_err, target_speed, sensor_max, target_speed, sensor_max);
 	sendto(socketDescriptor, str, strlen(str), 0, (struct sockaddr*) & serverAddress, sizeof(serverAddress));
 #endif // VS_DEBUG
 }

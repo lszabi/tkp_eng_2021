@@ -43,6 +43,10 @@ namespace DebugGUI
 				string str = Encoding.ASCII.GetString(receiveBytes);
 				string[] str_arr = str.Split('|');
 				status = str_arr[0];
+				for (int i = 0; i < plot_n; i++)
+				{
+					plots[i].legend = "";
+				}
 				for (int i = 0; (i < str_arr.Length - 1) && (i < plot_n); i++)
 				{
 					string[] d = str_arr[i + 1].Split(';');
