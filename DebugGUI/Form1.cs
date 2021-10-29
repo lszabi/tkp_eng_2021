@@ -28,7 +28,7 @@ namespace DebugGUI
 
 		public const int port = 9000;
 		public const int plot_size = 600;
-		public const int plot_n = 5;
+		public const int plot_n = 8;
 		
 		public static UdpState client;
 		public static string status = "Waiting...";
@@ -63,8 +63,8 @@ namespace DebugGUI
 			InitializeComponent();
 			DoubleBuffered = true;
 
-			plots = new PlotData[5];
-			Color[] plot_colors = { Color.Blue, Color.Orange, Color.Lime, Color.Gold, Color.Purple };
+			plots = new PlotData[plot_n];
+			Color[] plot_colors = { Color.Blue, Color.Orange, Color.Lime, Color.Gold, Color.Purple, Color.Cyan, Color.DarkGreen, Color.Magenta };
 			for (int i = 0; i < plot_n; i++)
 			{
 				plots[i].legend = "";

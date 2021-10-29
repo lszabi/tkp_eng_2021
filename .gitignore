@@ -3,6 +3,7 @@
 
 # WinSock Lib
 !client/WS2_32.Lib
+!client/WrapperBaseDriverNoisy.obj
 
 ### C ###
 # Prerequisites

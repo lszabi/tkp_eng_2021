@@ -15,34 +15,34 @@ const int gearDown[6] = {0,3000,4000,4000,4000,4500};
 
 /* Stuck constants*/
 const int stuckTime = 25;
-const float stuckAngle = .523598775; //PI/6
+const float stuckAngle = 0.523598775f; //PI/6
 
 /* Accel and Brake Constants*/
-const float maxSpeedDist = 70;
-const float maxSpeed = 200;
-const float sin5 = 0.08716;
-const float cos5 = 0.99619;
+const float maxSpeedDist = 70.0f;
+const float maxSpeed = 200.0f;
+const float sin5 = 0.08716f;
+const float cos5 = 0.99619f;
 
 /* Steering constants*/
-const float steerLock = 0.785398;
-const float steerSensitivityOffset = 90.0;
-const float wheelSensitivityCoeff = 1;
+const float steerLock = 0.785398f;
+const float steerSensitivityOffset = 90.0f;
+const float wheelSensitivityCoeff = 1.0f;
 
 /* ABS Filter Constants */
-const float wheelRadius[4] = { 0.3179,0.3179,0.3276,0.3276 };
-const float absSlip = 2.0;
-const float absRange = 3.0;
-const float absMinSpeed = 3.0;
+const float wheelRadius[4] = { 0.3179f, 0.3179f, 0.3276f, 0.3276f };
+const float absSlip = 2.0f;
+const float absRange = 3.0f;
+const float absMinSpeed = 3.0f;
 
 /* Clutch constants */
-const float clutchMax = 0.5;
-const float clutchDelta = 0.05;
-const float clutchRange = 0.82;
-const float clutchDeltaTime = 0.02;
-const float clutchDeltaRaced = 10;
-const float clutchDec = 0.01;
-const float clutchMaxModifier = 1.3;
-const float clutchMaxTime = 1.5;
+const float clutchMax = 0.5f;
+const float clutchDelta = 0.05f;
+const float clutchRange = 0.82f;
+const float clutchDeltaTime = 0.02f;
+const float clutchDeltaRaced = 10.0f;
+const float clutchDec = 0.01f;
+const float clutchMaxModifier = 1.3f;
+const float clutchMaxTime = 1.5f;
 
 int stuck;
 float clutch;
@@ -54,6 +54,9 @@ int accel_filt_i = 0;
 
 float accel_int = 0;
 float steer_int = 0;
+
+float sensor_prev[19] = { 0, };
+float sensor_prevprev[19] = { 0, };
 
 int getGear(structCarState* cs)
 {
@@ -87,7 +90,7 @@ int getGear(structCarState* cs)
 float filterABS(structCarState* cs, float brake)
 {
 	// convert speed to m/s
-	float speed = cs->speedX / 3.6;
+	float speed = cs->speedX / 3.6f;
 	// when speed lower than min speed for abs do nothing
 	if (speed < absMinSpeed)
 		return brake;
@@ -155,7 +158,7 @@ float getSteer(structCarState* cs)
 {
 	// steering angle is compute by correcting the actual car angle w.r.t. to track 
 	// axis [cs->angle] and to adjust car position w.r.t to middle of track [cs->trackPos*0.5]
-	float targetAngle = (cs->angle - cs->trackPos * 0.5);
+	float targetAngle = (cs->angle - cs->trackPos * 0.5f);
 	// at high speed reduce the steering command to avoid loosing the control
 	if (cs->speedX > steerSensitivityOffset)
 	{
@@ -212,11 +215,35 @@ float getAccel(structCarState* cs)
 		}
 
 		// accel/brake command is expontially scaled w.r.t. the difference between target speed and current one
-		return 2 / (1 + exp(cs->speedX - targetSpeed)) - 1;
+		return 2 / (1 + exp(cs->speedX - targetSpeed)) - 1.0f;
 	}
 	else
 	{
-		return 0.3; // when out of track returns a moderate acceleration command
+		return 0.3f; // when out of track returns a moderate acceleration command
+	}
+}
+
+void filterSensors(structCarState* cs) {
+	for (int i = 0; i < 19; i++)
+	{
+		if (cs->curLapTime < 0.5f)
+		{
+			sensor_prev[i] = cs->track[i];
+			sensor_prevprev[i] = cs->track[i];
+		}
+		else
+		{
+			//printf("%.04f\t%.04f\n", fabs(cs->track[i] - sensor_prev[i]), fabs(sensor_prev[i] - sensor_prevprev[i]));
+			if (cs->track[i] > 200 || cs->track[i] < 0)
+			{
+				cs->track[i] = sensor_prev[i];
+			}
+			else
+			{
+				sensor_prevprev[i] = sensor_prev[i];
+				sensor_prev[i] = cs->track[i];
+			}
+		}
 	}
 }
 
@@ -225,6 +252,8 @@ int msg = 1;
 void customDrive(structCarState* cs, float* accel, float* steer) {
 	float speed = cs->speedX;
 
+	//filterSensors(cs);
+
 	// angle: negative to left, positive to right
 	// trackpos: positive to left, negative to right
 	float angle_err = 0;
@@ -232,11 +261,9 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 	float pos_err = -cs->trackPos;
 	int steer_brake = 0;
 
-	float frSensor = cs->track[15];
-	float rSensor = cs->track[10]; // +5 deg to car axis, but clockwise
+	float rSensor = cs->track[12]; // +5 deg to car axis, but clockwise
 	float cSensor = cs->track[9]; // parallel to car axis
-	float lSensor = cs->track[8]; // -5 deg to car axis, but clockwise
-	float flSensor = cs->track[3];
+	float lSensor = cs->track[6]; // -5 deg to car axis, but clockwise
 
 	float target_speed = 280;
 	float sensor_max = fmax(cSensor, fmax(lSensor, rSensor));
@@ -247,7 +274,7 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 		}
 		else if (sensor_max < 75)
 		{
-			target_speed = sensor_max * 1.2f + 50;
+			target_speed = sensor_max * 1.2f + 40;
 		}
 		else
 		{
@@ -263,9 +290,11 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 	}
 
 	float corner_dir = 1;
+	/*
 	if (rSensor > lSensor) {
 		corner_dir = -1;
 	}
+	*/
 
 	//target_pos = (200 - sensor_max) * 0.004f + cs->angle; // feed back angle
 	pos_err = corner_dir * target_pos  - cs->trackPos;
@@ -295,8 +324,10 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 					"angle_err: %.02f\n"
 					"target_speed: %.02f\n"
 					"sensor_max: %.02f\n"
-					"|target_speed;0.3;%f|sensor;0.5;%f",
-		cs->angle, cs->trackPos, cSensor, lSensor, rSensor, pos_err, angle_err, target_speed, sensor_max, target_speed, sensor_max);
+					"|s -6;0.5;%f|s -4;0.5;%f|s -2;0.5;%f|s 0;0.5;%f|s +2;0.5;%f|s +4;0.5;%f|s +6;0.5;%f",
+		cs->angle, cs->trackPos, cSensor, lSensor, rSensor, pos_err, angle_err, target_speed, sensor_max,
+		cs->track[6], cs->track[7], cs->track[8], cs->track[9], cs->track[10], cs->track[11], cs->track[12]
+	);
 	sendto(socketDescriptor, str, strlen(str), 0, (struct sockaddr*) & serverAddress, sizeof(serverAddress));
 #endif // VS_DEBUG
 }
@@ -398,9 +429,8 @@ void Cinit(float* angles)
 	serverAddress.sin_port = htons(9000);
 #endif // VS_DEBUG
 
-
+	/*
 	// set angles as {-90,-75,-60,-45,-30,-20,-15,-10,-5,0,5,10,15,20,30,45,60,75,90}
-
 	for (int i = 0; i < 5; i++)
 	{
 		angles[i] = -90 + i * 15;
@@ -411,6 +441,14 @@ void Cinit(float* angles)
 	{
 		angles[i] = -20 + (i - 5) * 5;
 		angles[18 - i] = 20 - (i - 5) * 5;
+	}
+	*/
+
+	// set angles as -18..+18 (2 deg)
+	for (int i = 0; i < 9; i++)
+	{
+		angles[i] = -18 + 2 * i;
+		angles[18 - i] = 18 - 2 * i;
 	}
 	angles[9] = 0;
 }
