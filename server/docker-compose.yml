@@ -19,3 +19,5 @@ services:
     network_mode: host
     depends_on:
       - torcs_server
+    volumes:
+      - ./client_result:/client_result
