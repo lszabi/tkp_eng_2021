@@ -3,6 +3,7 @@
 
 #ifdef VS_DEBUG
 	#include <WinSock.h>
+	#include <stdio.h>
 	SOCKET socketDescriptor;
 	struct sockaddr_in serverAddress;
 #endif
@@ -10,8 +11,8 @@
 const float PI = 3.14159265f;
 
 /* Gear Changing Constants*/
-const int gearUp[6] = {7500,8000,8000,8500,8500,0};
-const int gearDown[6] = {0,3000,4000,4000,4000,4500};
+const int gearUp[6] = {6500,7000,7000,7500,7500,0};
+const int gearDown[6] = {0,2500,2500,3000,3000,3500};
 
 /* Stuck constants*/
 const int stuckTime = 25;
@@ -57,6 +58,22 @@ float steer_int = 0;
 
 float sensor_prev[19] = { 0, };
 float sensor_prevprev[19] = { 0, };
+
+/* Logging */
+int tick = 0;
+
+struct maplog {
+	float distance;
+	float steer;
+	float speed;
+	float accel;
+	float track_pos;
+};
+
+struct maplog map[256000];
+int map_n = 0, map_i = 0;
+
+int firstlap = 1;
 
 int getGear(structCarState* cs)
 {
@@ -247,8 +264,6 @@ void filterSensors(structCarState* cs) {
 	}
 }
 
-int msg = 1;
-
 void customDrive(structCarState* cs, float* accel, float* steer) {
 	float speed = cs->speedX;
 
@@ -268,17 +283,32 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 	float target_speed = 280;
 	float sensor_max = fmax(cSensor, fmax(lSensor, rSensor));
 
-	if (sensor_max < 150) {
-		if (cSensor < 30) {
-			target_speed = cSensor + 55;
+	if (firstlap)
+	{
+		if (sensor_max < 190) {
+			if (cSensor < 30) {
+				target_speed = cSensor + 30;
+			}
+			else if (sensor_max < 75)
+			{
+				target_speed = sensor_max * 1.1f + 30;
+			}
+			else
+			{
+				target_speed = sensor_max * 1.3f;
+			}
 		}
-		else if (sensor_max < 75)
-		{
-			target_speed = sensor_max * 1.2f + 40;
+	}
+	else
+	{
+		while (map[map_i].distance < cs->distFromStart && map_i < map_n - 1) {
+			map_i++;
 		}
-		else
+		target_speed = map[map_i].speed;
+		target_pos = map[map_i].track_pos;
+		if (map_i >= map_n - 1)
 		{
-			target_speed = sensor_max * 1.5f + 50;
+			map_i = 0;
 		}
 	}
 
@@ -297,10 +327,39 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 	*/
 
 	//target_pos = (200 - sensor_max) * 0.004f + cs->angle; // feed back angle
-	pos_err = corner_dir * target_pos  - cs->trackPos;
+	pos_err = corner_dir * target_pos - cs->trackPos;
 	angle_err = -cs->angle - 0.5 * pos_err;
 
 	*steer = -PI * angle_err / steerLock;
+	
+	if (firstlap)
+	{
+		if (firstlap == 1 && cs->distFromStart < 500) {
+			firstlap = 2;
+		}
+		if (cs->distFromStart + 1000 < cs->distRaced) {
+			// second lap
+			firstlap = 0;
+		#ifdef VS_DEBUG
+			FILE* f = fopen("debug.txt", "w");
+			for (int i = 0; i < map_n; i++)
+			{
+				fprintf(f, "%.04f,%.04f,%.04f,%.04f\n", map[i].distance, map[i].speed, map[i].steer, map[i].accel);
+			}
+			fclose(f);
+		#endif // VS_DEBUG
+
+		}
+		if (firstlap == 2 && (map_n == 0 || map[map_n - 1].distance + 1 < cs->distFromStart)) {
+			map[map_n].distance = cs->distFromStart;
+			map[map_n].speed = speed;
+			map[map_n].steer = *steer;
+			map[map_n].accel = *accel;
+			map[map_n].track_pos = 0;
+			map_n++;
+		}
+	}
+
 	/*
 	// at high speed reduce the steering command to avoid loosing the control
 	if (speed > steerSensitivityOffset)
@@ -315,18 +374,20 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 
 #ifdef VS_DEBUG
 	char str[512] = "";
-	sprintf(str,	"Angle: %.02f\n"
-					"Track pos: %.02f\n"
-					"C-Sensor: %.02f\n"
-					"L-Sensor: %.02f\n"
-					"R-Sensor: %.02f\n"
-					"pos_err: %.02f\n"
-					"angle_err: %.02f\n"
+	sprintf(str,	"Angle: %10.2f     Track pos: %10.2f\n"
+					"L-Sensor: %10.2f     C-Sensor: %10.2f     R-Sensor: %10.2f\n"
 					"target_speed: %.02f\n"
+					"target_pos: %10.2f\n"
 					"sensor_max: %.02f\n"
-					"|s -6;0.5;%f|s -4;0.5;%f|s -2;0.5;%f|s 0;0.5;%f|s +2;0.5;%f|s +4;0.5;%f|s +6;0.5;%f",
-		cs->angle, cs->trackPos, cSensor, lSensor, rSensor, pos_err, angle_err, target_speed, sensor_max,
-		cs->track[6], cs->track[7], cs->track[8], cs->track[9], cs->track[10], cs->track[11], cs->track[12]
+					"map_i: %d\n"
+					"dist: %.02f\n"
+					"distfromstart: %.02f\n"
+					"firstlap: %d"
+					//"|s -6;0.5;%f|s -4;0.5;%f|s -2;0.5;%f|s 0;0.5;%f|s +2;0.5;%f|s +4;0.5;%f|s +6;0.5;%f",
+					"|steer;100;%f|speed;0.5;%f",
+		cs->angle, cs->trackPos, lSensor, cSensor, rSensor, target_speed, target_pos, sensor_max, map_i, cs->distRaced, cs->distFromStart, firstlap,
+		//cs->track[6], cs->track[7], cs->track[8], cs->track[9], cs->track[10], cs->track[11], cs->track[12]
+		*steer, speed
 	);
 	sendto(socketDescriptor, str, strlen(str), 0, (struct sockaddr*) & serverAddress, sizeof(serverAddress));
 #endif // VS_DEBUG
@@ -427,6 +488,25 @@ void Cinit(float* angles)
 	serverAddress.sin_family = hostInfo->h_addrtype;
 	memcpy((char*)&serverAddress.sin_addr.s_addr, hostInfo->h_addr_list[0], hostInfo->h_length);
 	serverAddress.sin_port = htons(9000);
+	/*
+	if (firstlap) {
+		firstlap = 0;
+		FILE* f = fopen("debug_in.txt", "r");
+		int r = 5;
+		while (r == 5)
+		{
+			float a=0, b=0, c=0, d=0, e=0;
+			r = fscanf(f, "%f%f%f%f%f", &a, &b, &c, &d, &e);
+			map[map_n].distance = a;
+			map[map_n].speed = b;
+			map[map_n].steer = c;
+			map[map_n].accel = d;
+			map[map_n].track_pos = e;
+			//printf("%d: %.02f,%.02f,%.02f,%.02f,%.02f\n", map_n, map[map_n].distance, map[map_n].speed, map[map_n].steer, map[map_n].accel, map[map_n].track_pos);
+			map_n++;
+		}
+		fclose(f);
+	}*/
 #endif // VS_DEBUG
 
 	/*
