@@ -177,6 +177,33 @@ float filterABS(structCarState* cs, float brake)
 		return brake;
 }
 
+float filterESP(structCarState* cs, float accel)
+{
+	// convert speed to m/s
+	float speed = cs->speedX / 3.6f;
+	// when speed lower than min speed for abs do nothing
+	if (speed < absMinSpeed)
+	{
+		return accel;
+	}
+
+	// compute the speed of wheels in m/s
+	float slip = 0.0f;
+	for (int i = 0; i < 4; i++)
+	{
+		slip += cs->wheelSpinVel[i] * wheelRadius[i];
+	}
+	// slip is the difference between actual speed of car and average speed of wheels
+	slip = slip / 4.0f - speed;
+	// when slip too high apply ESP
+	if (slip > 0)
+	{
+		accel =	0.1;
+	}
+
+	return accel;
+}
+
 void clutching(structCarState* cs, float* clutch)
 {
 	float maxClutch = clutchMax;
@@ -419,25 +446,17 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 		if (accel_int < 1.0) {
 			accel_int += 0.01;
 		}
-		*accel = accel_int;
+		*accel = 1;
 	}
 	else if (speed > (target_speed + 10)) {
 		*accel = -1;
 		accel_int = 0;
 	}
 
-	float corner_dir = 1;
-	/*
-	if (rSensor > lSensor) {
-		corner_dir = -1;
-	}
-	*/
-
-	//target_pos = (200 - sensor_max) * 0.004f + cs->angle; // feed back angle
-	pos_err = corner_dir * target_pos - cs->trackPos;
+	pos_err = target_pos - cs->trackPos;
 	angle_err = -cs->angle - 0.5 * pos_err;
 
-	*steer = -PI * angle_err / steerLock;
+	*steer = -angle_err / steerLock;
 	
 	if (firstlap)
 	{
@@ -612,7 +631,7 @@ structCarControl CDrive(structCarState cs)
 		float accel, brake;
 		if (accel_and_brake >= 0)
 		{
-			accel = accel_and_brake;
+			accel = filterESP(&cs, accel_and_brake);
 			brake = 0;
 		}
 		else
