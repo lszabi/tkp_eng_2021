@@ -8,7 +8,7 @@
 	struct sockaddr_in serverAddress;
 #endif
 
-const int REVERSE = 1;
+//#define REVERSE
 
 const float PI = 3.14159265f;
 
@@ -76,6 +76,8 @@ struct maplog map[256000];
 int map_n = 0, map_i = 0;
 
 int firstlap = 1;
+
+int reverse_start = 1;
 
 void filter(float *dest, float* source, int n, int order) {
 	for (int i = 0; i < n; i++)
@@ -306,6 +308,65 @@ void filterSensors(structCarState* cs) {
 	}
 }
 
+void reverseDrive(structCarState* cs, float* accel, float* steer, int *gear) {
+	float speed = -cs->speedX;
+	cs->angle -= PI;
+	if (cs->angle < -PI)
+	{
+		cs->angle += 2 * PI;
+	}
+	int st = 0;
+	if (fabs(cs->angle) < stuckAngle)
+	{
+		st = 1;
+		float target_speed = fmin(fmax(cs->track[9], 10), 50);
+
+		if (speed < target_speed)
+		{
+			*accel = 0.5;
+		}
+		else if (speed > target_speed + 5)
+		{
+			*accel = -0.5;
+		}
+
+		*steer = -(cs->angle - 0.5 * cs->trackPos) / steerLock;
+		*gear = -1;
+	}
+	else if (fabs(cs->angle) > stuckAngle + PI/2 && fabs(cs->trackPos) < 1 )
+	{
+		st = 4;
+		*accel = 0.3;
+		*steer = 1;
+		*gear = -1;
+	}
+	else if ((cs->angle > stuckAngle && cs->trackPos >= 0) || (cs->angle < -stuckAngle && cs->trackPos <= 0))
+	{
+		st = 2;
+		*gear = -1;
+		*accel = 0.3;
+		*steer = -(cs->angle - 0.5 * cs->trackPos) / steerLock;
+	}
+	else if ((cs->angle > stuckAngle && cs->trackPos <= 0) || (cs->angle < -stuckAngle && cs->trackPos >= 0))
+	{
+		st = 3;
+		*gear = 1;
+		*accel = 0.3;
+		*steer = -(cs->angle - 0.5 * cs->trackPos) / steerLock;
+	}
+	if (speed < 0) {
+		*steer *= -1;
+	}
+
+#ifdef VS_DEBUG
+	char str[512] = "";
+	sprintf(str, "Angle: %10.2f     Track pos: %10.2f\nCase: %d",
+		cs->angle, cs->trackPos, st
+	);
+	sendto(socketDescriptor, str, strlen(str), 0, (struct sockaddr*) & serverAddress, sizeof(serverAddress));
+#endif // VS_DEBUG
+}
+
 void customDrive(structCarState* cs, float* accel, float* steer) {
 	float speed = cs->speedX;
 
@@ -355,10 +416,14 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 	}
 
 	if (speed < target_speed) {
-		*accel = 1;
+		if (accel_int < 1.0) {
+			accel_int += 0.01;
+		}
+		*accel = accel_int;
 	}
 	else if (speed > (target_speed + 10)) {
 		*accel = -1;
+		accel_int = 0;
 	}
 
 	float corner_dir = 1;
@@ -443,32 +508,49 @@ structCarControl CDrive(structCarState cs)
 		cs.prevStage = cs.stage;
 	}
 
-	float gear_m = 1;
-	if (REVERSE)
-	{
-		gear_m = -1;
-		if (cs.angle > PI)
+#ifdef REVERSE
+	if (reverse_start) {
+		// compute gear 
+		int gear = -1;
+
+		float accel_and_brake = 0, steer = 0;
+		reverseDrive(&cs, &accel_and_brake, &steer, &gear);
+
+		// normalize steering
+		if (steer < -1)
+			steer = -1;
+		if (steer > 1)
+			steer = 1;
+
+		// set accel and brake from the joint accel/brake command 
+		float accel, brake;
+		if (accel_and_brake >= 0)
 		{
-			cs.angle -= PI;
+			accel = accel_and_brake;
+			brake = 0;
 		}
-		else {
-			cs.angle += PI;
+		else
+		{
+			accel = 0;
+			// apply ABS to brake
+			brake = filterABS(&cs, -accel_and_brake);
 		}
 
-		if (fabs(cs.angle) > PI / 2) {
-			float accel = 0.3;
-			float steer = 1;
-			float gear = -1;
+		// Calculate clutching
+		clutching(&cs, &clutch);
 
-			// Calculate clutching
-			clutching(&cs, &clutch);
-
-			// build a CarControl variable and return it
-			structCarControl cc = { accel, 0.0f, gear, steer, clutch };
-			return cc;
+		// build a CarControl variable and return it
+		structCarControl cc = { accel,brake,gear,steer,clutch };
+		return cc;
+	}
+	else {
+		cs.angle -= PI;
+		if (cs.angle < -PI)
+		{
+			cs.angle += 2 * PI;
 		}
 	}
-
+#endif // REVERSE
 
 	// check if car is currently stuck
 	if (fabs(cs.angle) > stuckAngle)
@@ -490,12 +572,12 @@ structCarControl CDrive(structCarState cs)
 
 		 // to bring car parallel to track axis
 		float steer = -cs.angle / steerLock;
-		int gear = -1 * gear_m; // gear R
+		int gear = -1; // gear R
 
 		// if car is pointing in the correct direction revert gear and steer  
 		if (cs.angle * cs.trackPos > 0)
 		{
-			gear = 1 * gear_m;
+			gear = 1;
 			steer = -steer;
 		}
 
@@ -512,13 +594,8 @@ structCarControl CDrive(structCarState cs)
 		// compute gear 
 		int gear = getGear(&cs);
 
-		if (REVERSE)
-		{
-			gear = -1;
-		}
-
 		float accel_and_brake = 0, steer = 0;
-		//customDrive(&cs, &accel_and_brake, &steer);
+		customDrive(&cs, &accel_and_brake, &steer);
 		
 		// compute accel/brake command
 		//accel_and_brake = getAccel(&cs);
@@ -601,12 +678,21 @@ void Cinit(float* angles)
 	*/
 
 	// set angles as -18..+18 (2 deg)
+#ifdef REVERSE
+	for (int i = 0; i < 9; i++)
+	{
+		angles[i] = -18 + 2 * i + 180;
+		angles[18 - i] = 18 - 2 * i - 180;
+	}
+	angles[9] = 180;
+#else
 	for (int i = 0; i < 9; i++)
 	{
 		angles[i] = -18 + 2 * i;
 		angles[18 - i] = 18 - 2 * i;
 	}
 	angles[9] = 0;
+#endif // REVERSE
 }
 
 void ConShutdown()
