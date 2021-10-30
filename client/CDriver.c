@@ -8,6 +8,8 @@
 	struct sockaddr_in serverAddress;
 #endif
 
+const int REVERSE = 1;
+
 const float PI = 3.14159265f;
 
 /* Gear Changing Constants*/
@@ -16,7 +18,7 @@ const int gearDown[6] = {0,2500,2500,3000,3000,3500};
 
 /* Stuck constants*/
 const int stuckTime = 25;
-const float stuckAngle = 0.523598775f; //PI/6
+const float stuckAngle = 3.1415f / 3.0f;
 
 /* Accel and Brake Constants*/
 const float maxSpeedDist = 70.0f;
@@ -74,6 +76,46 @@ struct maplog map[256000];
 int map_n = 0, map_i = 0;
 
 int firstlap = 1;
+
+void filter(float *dest, float* source, int n, int order) {
+	for (int i = 0; i < n; i++)
+	{
+		float sum = 0;
+		for (int k = 0; k < order; k++)
+		{
+			int c = i + k - order / 2;
+			if (c > 0 && c < n) {
+				sum += source[c];
+			}
+		}
+		dest[i] = sum / order;
+	}
+}
+
+float track_pos[256000], track_pos_new[256000];
+
+void process_map() {
+	for (int i = 0; i < map_n; i++)
+	{
+		if (map[i].steer > 0.05)
+		{
+			track_pos[i] = 0.8;
+		}
+		else if (map[i].steer < -0.05)
+		{
+			track_pos[i] = -0.8;
+		}
+		else
+		{
+			track_pos[i] = 0;
+		}
+	}
+	filter(track_pos_new, track_pos, map_n, 50);
+	for (int i = 0; i < map_n; i++)
+	{
+		map[i].track_pos = track_pos_new[i];
+	}
+}
 
 int getGear(structCarState* cs)
 {
@@ -306,7 +348,7 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 		}
 		target_speed = map[map_i].speed;
 		target_pos = map[map_i].track_pos;
-		if (map_i >= map_n - 1)
+		if (map_i >= map_n - 1 || map[map_i].distance > cs->distFromStart + 1000)
 		{
 			map_i = 0;
 		}
@@ -340,11 +382,12 @@ void customDrive(structCarState* cs, float* accel, float* steer) {
 		if (cs->distFromStart + 1000 < cs->distRaced) {
 			// second lap
 			firstlap = 0;
+			process_map();
 		#ifdef VS_DEBUG
 			FILE* f = fopen("debug.txt", "w");
 			for (int i = 0; i < map_n; i++)
 			{
-				fprintf(f, "%.04f,%.04f,%.04f,%.04f\n", map[i].distance, map[i].speed, map[i].steer, map[i].accel);
+				fprintf(f, "%.04f,%.04f,%.04f,%.04f,%.04f\n", map[i].distance, map[i].speed, map[i].steer, map[i].accel, map[i].track_pos);
 			}
 			fclose(f);
 		#endif // VS_DEBUG
@@ -399,6 +442,34 @@ structCarControl CDrive(structCarState cs)
 	{
 		cs.prevStage = cs.stage;
 	}
+
+	float gear_m = 1;
+	if (REVERSE)
+	{
+		gear_m = -1;
+		if (cs.angle > PI)
+		{
+			cs.angle -= PI;
+		}
+		else {
+			cs.angle += PI;
+		}
+
+		if (fabs(cs.angle) > PI / 2) {
+			float accel = 0.3;
+			float steer = 1;
+			float gear = -1;
+
+			// Calculate clutching
+			clutching(&cs, &clutch);
+
+			// build a CarControl variable and return it
+			structCarControl cc = { accel, 0.0f, gear, steer, clutch };
+			return cc;
+		}
+	}
+
+
 	// check if car is currently stuck
 	if (fabs(cs.angle) > stuckAngle)
 	{
@@ -419,12 +490,12 @@ structCarControl CDrive(structCarState cs)
 
 		 // to bring car parallel to track axis
 		float steer = -cs.angle / steerLock;
-		int gear = -1; // gear R
+		int gear = -1 * gear_m; // gear R
 
 		// if car is pointing in the correct direction revert gear and steer  
 		if (cs.angle * cs.trackPos > 0)
 		{
-			gear = 1;
+			gear = 1 * gear_m;
 			steer = -steer;
 		}
 
@@ -432,7 +503,7 @@ structCarControl CDrive(structCarState cs)
 		clutching(&cs, &clutch);
 
 		// build a CarControl variable and return it
-		structCarControl cc = { 1.0f,0.0f,gear,steer,clutch };
+		structCarControl cc = { 0.3f, 0.0f, gear, steer, clutch };
 		return cc;
 	}
 
@@ -441,8 +512,13 @@ structCarControl CDrive(structCarState cs)
 		// compute gear 
 		int gear = getGear(&cs);
 
+		if (REVERSE)
+		{
+			gear = -1;
+		}
+
 		float accel_and_brake = 0, steer = 0;
-		customDrive(&cs, &accel_and_brake, &steer);
+		//customDrive(&cs, &accel_and_brake, &steer);
 		
 		// compute accel/brake command
 		//accel_and_brake = getAccel(&cs);
