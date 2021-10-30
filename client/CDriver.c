@@ -572,7 +572,7 @@ structCarControl CDrive(structCarState cs)
 #endif // REVERSE
 
 	// check if car is currently stuck
-	if (fabs(cs.angle) > stuckAngle)
+	if (fabs(cs.angle) > stuckAngle || fabs(cs.trackPos) > 1)
 	{
 		// update stuck counter
 		stuck++;
